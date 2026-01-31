@@ -1,5 +1,9 @@
 # electron-launch-handler
 
+[![CI](https://badgen.net/github/checks/biw/electron-launch-handler)](https://github.com/biw/electron-launch-handler/actions)
+[![npm version](https://badgen.net/npm/v/electron-launch-handler)](https://www.npmjs.com/package/electron-launch-handler)
+[![npm downloads](https://badgen.net/npm/dt/electron-launch-handler)](https://www.npmjs.com/package/electron-launch-handler)
+
 **Single instance enforcement and deep link handling for Electron apps.**
 
 Ensure only one instance of your app runs at a time, and handle deep links
