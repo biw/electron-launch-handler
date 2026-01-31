@@ -1,0 +1,16 @@
+node_modules/
+build/
+dist/
+*.node
+package-lock.json
+detectAvx.exe
+*.tsbuildinfo
+.DS_Store
+
+# Yarn
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+
+# Context
+.context/

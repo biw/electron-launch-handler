@@ -1,0 +1,36 @@
+{
+  "name": "electron-launch-handler-test-app",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.test.electron-launch-handler",
+    "productName": "ElectronLaunchHandlerTest",
+    "protocols": [
+      {
+        "name": "Test Protocol",
+        "schemes": [
+          "testapp"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "dir"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Development"
+    }
+  }
+}

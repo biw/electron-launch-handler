@@ -1,0 +1,77 @@
+{
+  "name": "electron-launch-handler",
+  "version": "0.0.1",
+  "packageManager": "pnpm@9.15.0",
+  "description": "Single instance enforcement and deep link handling for Electron apps",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "lint": "eslint src test && tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "electron",
+    "singleton",
+    "single-instance",
+    "single instance",
+    "deep-link",
+    "deep-linking",
+    "deeplink",
+    "protocol-handler",
+    "custom-protocol",
+    "url-scheme",
+    "app-instance",
+    "instance-lock",
+    "launch",
+    "activate",
+    "focus",
+    "second-instance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biw/electron-launch-handler.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "electron": ">=22.0.0"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "electron": "^33.0.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.0.0",
+    "prettier": "^3.7.4",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}
