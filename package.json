@@ -1,6 +1,6 @@
 {
   "name": "electron-launch-handler",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "packageManager": "pnpm@9.15.0",
   "description": "Single instance enforcement and deep link handling for Electron apps",
   "type": "module",
