@@ -4,18 +4,21 @@
 [![npm version](https://badgen.net/npm/v/electron-launch-handler)](https://www.npmjs.com/package/electron-launch-handler)
 [![npm downloads](https://badgen.net/npm/dt/electron-launch-handler)](https://www.npmjs.com/package/electron-launch-handler)
 
-**Single instance enforcement and deep link handling for Electron apps.**
+**Single-instance and deep-link plumbing for Electron apps.**
 
-Ensure only one instance of your app runs at a time, and handle deep links
-(`myapp://`) across macOS, Windows, and Linux.
+Electron gives you deep links through different paths depending on the platform:
+`open-url` on macOS, command-line arguments on Windows and Linux, and
+`second-instance` when the app is already running. This package normalizes that
+startup path so your app code can handle URLs and relaunches from one place.
 
-## Features
+## What It Handles
 
-- **Single Instance Lock** - Prevent multiple instances of your app
-- **Deep Link Handling** - Register and handle custom URL protocols
-- **Intent-Aware Context** - Distinguish app launch vs in-app deep link delivery
-- **Cross-Platform** - Works on macOS (Intel + Apple Silicon), Windows, and Linux
-- **Squirrel.Windows Support** - Handles install/update/uninstall events automatically
+- Single-instance lock acquisition
+- Custom protocol registration
+- Launch-time and already-running deep links
+- Plain relaunches without a deep link
+- Readiness queues for startup, auth, onboarding, or workspace loading
+- Squirrel.Windows installer events
 
 ## Installation
 
@@ -49,7 +52,6 @@ if (instance.shouldQuit) {
   app.quit()
 } else {
   app.whenReady().then(() => {
-    // Mark the app as ready to handle deep links
     instance.processPendingDeepLinks()
   })
 }
@@ -59,12 +61,10 @@ if (instance.shouldQuit) {
 
 1. The library acquires a single-instance lock.
 2. Deep links are collected until you call `processPendingDeepLinks()`.
-3. After that call, deep links are delivered directly to `onDeepLink`.
+3. Once processed, future deep links are delivered directly to `onDeepLink`.
 
-If another instance is launched and includes a deep link URL, the running instance
-receives it via `onDeepLink`.
-
-`onDeepLink` is only called when a deep link URL is present.
+When another instance launches with a deep link, the running app receives it via
+`onDeepLink`. Relaunches without a deep link go to `onSecondInstance` instead.
 
 ### Lock Failure Handling
 
@@ -102,36 +102,20 @@ onDeepLink: (url, context) => {
 }
 ```
 
-## Queueing Behavior (Important)
+## Readiness
 
-Deep links are queued until you call `processPendingDeepLinks()`:
-
-```typescript
-// Before processPendingDeepLinks():
-// - Deep links are queued
-// - onDeepLink is NOT called
-
-instance.processPendingDeepLinks()
-
-// After processPendingDeepLinks():
-// - Queued deep links are dispatched to onDeepLink
-// - Future deep links go directly to onDeepLink
-```
-
-You can also re-queue a deep link manually:
+Deep links are queued until your app opts in to handling them:
 
 ```typescript
-onDeepLink: (url, context) => {
-  if (!appIsReady) {
-    instance.queueDeepLink(url, context.intent)
-    return
-  }
-  handleDeepLink(url)
-}
+app.whenReady().then(() => {
+  instance.processPendingDeepLinks()
+})
 ```
 
-Note: if `processPendingDeepLinks()` has already been called, `queueDeepLink()`
-will dispatch on the next tick rather than re-queue.
+Use `queueDeepLink(url)` for URLs your own code receives before that point.
+After readiness, return `{ action: 'defer' }` from `onDeepLink` when the URL is
+valid but another app condition is not ready yet. Deferred links are held until
+`processDeferredDeepLinks()`.
 
 ## Common Patterns
 
@@ -142,19 +126,36 @@ let isOnboardingComplete = false
 
 const instance = setupInstance({
   protocols: ['myapp'],
-  onDeepLink: (url, context) => {
+  onDeepLink: (url) => {
     if (!isOnboardingComplete) {
-      instance.queueDeepLink(url, context.intent)
-      return
+      return { action: 'defer' }
     }
+
     handleDeepLink(url)
   },
 })
 
 app.whenReady().then(() => {
-  // Run onboarding, then:
-  isOnboardingComplete = true
   instance.processPendingDeepLinks()
+})
+
+const completeOnboarding = () => {
+  isOnboardingComplete = true
+  instance.processDeferredDeepLinks()
+}
+```
+
+### Plain Relaunches
+
+```typescript
+setupInstance({
+  protocols: ['myapp'],
+  onDeepLink: handleDeepLink,
+  onSecondInstance: ({ deepLinkUrl }) => {
+    if (!deepLinkUrl) {
+      focusMainWindow()
+    }
+  },
 })
 ```
 
@@ -241,7 +242,8 @@ Main entry point. Returns an `InstanceManager` object.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `protocols` | `string[]` | `[]` | Protocol schemes to register |
-| `onDeepLink` | `DeepLinkHandler` | - | Called when a deep link is received. Can be async. |
+| `onDeepLink` | `DeepLinkHandler` | - | Called when a deep link is received. Can return a `DeepLinkDeferral`. |
+| `onSecondInstance` | `SecondInstanceHandler` | - | Called when another instance launches |
 | `onInstanceLockFailed` | `() => void` | - | Called when lock acquisition fails |
 | `logger` | `Logger` | no-op | Logger instance |
 | `windows` | `WindowsOptions` | - | Windows-specific options |
@@ -257,7 +259,12 @@ Main entry point. Returns an `InstanceManager` object.
 | `getPendingDeepLinks()` | `() => string[]` | Get pending deep links without processing |
 | `clearPendingDeepLinks()` | `() => void` | Clear pending deep links without processing |
 | `queueDeepLink(url)` | `(url: string, intent?: DeepLinkIntent) => void` | Queue a deep link for later processing |
+| `deferDeepLink(url)` | `(url: string, intent?: DeepLinkIntent) => void` | Hold a deep link until `processDeferredDeepLinks()` |
+| `processDeferredDeepLinks()` | `() => void` | Process deep links held by `deferDeepLink()` |
+| `getDeferredDeepLinks()` | `() => string[]` | Get deferred deep links without processing |
+| `clearDeferredDeepLinks()` | `() => void` | Clear deferred deep links without processing |
 | `unregisterProtocols()` | `() => void` | Unregister protocol handlers (typically only needed for testing) |
+| `dispose()` | `() => void` | Remove installed listeners and unregister protocols |
 
 #### `DeepLinkContext`
 
@@ -266,9 +273,24 @@ Main entry point. Returns an `InstanceManager` object.
 | `url` | `string` | Original URL string |
 | `parsed` | `URL` | Parsed URL object |
 | `protocol` | `string` | Protocol without `://` |
+| `host` | `string` | URL host |
 | `path` | `string` | URL path |
 | `params` | `URLSearchParams` | Query parameters |
+| `hash` | `string` | URL hash/fragment |
 | `intent` | `'launch' \| 'open-url'` | Why the deep link was delivered |
+
+#### `DeepLinkDeferral`
+
+Return `{ action: 'defer' }` from `onDeepLink` to redeliver the same URL on the
+next `processDeferredDeepLinks()` call.
+
+#### `SecondInstanceContext`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `argv` | `string[]` | Command-line arguments from the second instance |
+| `workingDirectory` | `string` | Working directory from the second instance |
+| `deepLinkUrl` | `string \| undefined` | Deep link found in `argv`, if present |
 
 ### `parseDeepLink(url)`
 

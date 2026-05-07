@@ -65,9 +65,11 @@ describe('parseDeepLink', () => {
 
 describe('createDeepLinkContext', () => {
   it('should create context with intent launch', () => {
-    const context = createDeepLinkContext('myapp://open', 'launch')
+    const context = createDeepLinkContext('myapp://open/path#section', 'launch')
 
     expect(context).not.toBeNull()
+    expect(context!.host).toBe('open')
+    expect(context!.hash).toBe('#section')
     expect(context!.intent).toBe('launch')
   })
 

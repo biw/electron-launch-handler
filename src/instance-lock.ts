@@ -1,34 +1,23 @@
 import { app } from 'electron'
-import type { SetupOptions, Logger } from './types.js'
+import type { SetupOptions, Logger, SecondInstanceContext } from './types.js'
 import { getPlatformHandler } from './platforms/index.js'
 
-/**
- * Result of attempting to acquire the single instance lock
- */
 export interface LockResult {
-  /** Whether the lock was acquired */
   hasLock: boolean
-  /** Cleanup function to release handlers */
   cleanup: () => void
 }
 
-/**
- * Attempt to acquire the single instance lock
- *
- * @param options - Setup options
- * @param logger - Logger instance
- * @param onSecondInstanceDeepLink - Callback with deep link URL from a second instance
- * @returns Lock result
- */
 export function acquireInstanceLock(
   options: SetupOptions,
   logger: Logger,
-  onSecondInstanceDeepLink: (deepLinkUrl: string | undefined) => void
+  handleSecondInstanceDeepLink: (deepLinkUrl: string | undefined) => void
 ): LockResult {
   const platformHandler = getPlatformHandler()
-  const protocols = normalizeProtocols(options.protocols)
+  const protocols = options.protocols ?? []
+  const logSecondInstanceError = (error: unknown) => {
+    logger.error(`Error handling second instance: ${String(error)}`)
+  }
 
-  // Check for platform-specific startup events (e.g., Squirrel on Windows)
   if (platformHandler.handleStartupEvents?.(options)) {
     logger.info('Handling platform startup event, app will quit')
     return {
@@ -37,7 +26,6 @@ export function acquireInstanceLock(
     }
   }
 
-  // Try to acquire the single instance lock
   const hasLock = app.requestSingleInstanceLock()
 
   if (!hasLock) {
@@ -51,18 +39,34 @@ export function acquireInstanceLock(
 
   logger.info('Acquired single instance lock')
 
-  // Set up handler for second instance
   const secondInstanceHandler = (
     _event: Electron.Event,
     argv: string[],
-    _workingDirectory: string
+    workingDirectory: string
   ) => {
     logger.debug(`Second instance launched with args: ${argv.join(' ')}`)
 
-    // Extract deep link from command line args
     const deepLinkUrl = platformHandler.extractDeepLinkFromArgs(argv, protocols)
+    const context: SecondInstanceContext = {
+      argv: [...argv],
+      workingDirectory,
+    }
 
-    onSecondInstanceDeepLink(deepLinkUrl)
+    if (deepLinkUrl) {
+      context.deepLinkUrl = deepLinkUrl
+    }
+
+    if (options.onSecondInstance) {
+      try {
+        void Promise.resolve(options.onSecondInstance(context)).catch(
+          logSecondInstanceError
+        )
+      } catch (error) {
+        logSecondInstanceError(error)
+      }
+    }
+
+    handleSecondInstanceDeepLink(deepLinkUrl)
   }
 
   app.on('second-instance', secondInstanceHandler)
@@ -71,14 +75,7 @@ export function acquireInstanceLock(
     hasLock: true,
     cleanup: () => {
       app.off('second-instance', secondInstanceHandler)
+      app.releaseSingleInstanceLock()
     },
   }
-}
-
-/**
- * Normalize protocol configuration to an array of scheme strings
- */
-function normalizeProtocols(protocols?: string[]): string[] {
-  if (!protocols) return []
-  return protocols
 }
