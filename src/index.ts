@@ -16,7 +16,7 @@ import type {
   ParsedDeepLink,
 } from './types.js'
 import { acquireInstanceLock } from './instance-lock.js'
-import { registerProtocols } from './protocol-registry.js'
+import { getProtocolSchemes, registerProtocols } from './protocol-registry.js'
 import { createDeepLinkManager } from './deep-links.js'
 import { parseDeepLink } from './url-parser.js'
 
@@ -93,7 +93,7 @@ export function setupInstance(options: SetupOptions): InstanceManager {
   deepLinkManager = createDeepLinkManager(
     options,
     logger,
-    protocolResult.registered
+    getProtocolSchemes(options.protocols)
   )
 
   let disposed = false

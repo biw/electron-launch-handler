@@ -83,6 +83,38 @@ describe('setupInstance', () => {
     )
   })
 
+  it('still handles configured protocols when OS registration fails', async () => {
+    appMock.setAsDefaultProtocolClient.mockReturnValue(false)
+
+    const logger = createMockLogger()
+    const onDeepLink = vi.fn()
+    const url = 'myapp://settings?tab=general'
+
+    const manager = setupInstance({
+      logger,
+      onDeepLink,
+      protocols: ['myapp'],
+    })
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to register protocol: myapp'
+    )
+
+    appMock._simulateSecondInstance(['MyApp', url], '/tmp/project')
+    expect(manager.getPendingDeepLinks()).toEqual([url])
+
+    manager.processPendingDeepLinks()
+    await flushScheduledDispatch()
+
+    expect(onDeepLink).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({
+        intent: 'open-url',
+        protocol: 'myapp',
+      })
+    )
+  })
+
   it('keeps pending deep link processing idempotent', async () => {
     const onDeepLink = vi.fn()
     const url = 'myapp://settings?tab=general'
