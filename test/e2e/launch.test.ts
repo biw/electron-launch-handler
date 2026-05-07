@@ -26,6 +26,10 @@ const readLog = (logFile: string) => {
   return fs.readFileSync(logFile, 'utf-8')
 }
 
+const appendLog = (logFile: string, message: string) => {
+  fs.appendFileSync(logFile, message)
+}
+
 const waitForLog = async (
   logFile: string,
   text: string,
@@ -81,13 +85,37 @@ const startElectron = (
     fs.unlinkSync(logFile)
   }
 
-  return spawn(electronPath, [TEST_APP_DIR, ...args], {
+  const electronArgs = isLinux()
+    ? ['--no-sandbox', TEST_APP_DIR, ...args]
+    : [TEST_APP_DIR, ...args]
+
+  appendLog(logFile, `Spawning Electron: ${electronArgs.join(' ')}\n`)
+
+  const proc = spawn(electronPath, electronArgs, {
     env: {
       ...process.env,
       TEST_LOG_FILE: logFile,
     },
     stdio: 'pipe',
   })
+
+  proc.stdout?.on('data', (data: Buffer) => {
+    appendLog(logFile, data.toString())
+  })
+
+  proc.stderr?.on('data', (data: Buffer) => {
+    appendLog(logFile, data.toString())
+  })
+
+  proc.on('exit', (code, signal) => {
+    appendLog(logFile, `Electron exited with code=${code} signal=${signal}\n`)
+  })
+
+  proc.on('error', (error) => {
+    appendLog(logFile, `Electron failed to spawn: ${String(error)}\n`)
+  })
+
+  return proc
 }
 
 describe('E2E: Electron launch handling', () => {
