@@ -1,10 +1,14 @@
 import type {
   SetupOptions,
+  DeepLinkDeferral,
   InstanceManager,
   Logger,
   DeepLinkContext,
   DeepLinkIntent,
   DeepLinkHandler,
+  DeepLinkHandlerResult,
+  SecondInstanceContext,
+  SecondInstanceHandler,
   WindowsOptions,
   SquirrelOptions,
   LinuxOptions,
@@ -12,18 +16,21 @@ import type {
   ParsedDeepLink,
 } from './types.js'
 import { acquireInstanceLock } from './instance-lock.js'
-import { registerProtocols } from './protocol-registry.js'
+import { getProtocolSchemes, registerProtocols } from './protocol-registry.js'
 import { createDeepLinkManager } from './deep-links.js'
 import { parseDeepLink } from './url-parser.js'
 
-// Re-export types
 export type {
   SetupOptions,
+  DeepLinkDeferral,
   InstanceManager,
   Logger,
   DeepLinkContext,
   DeepLinkIntent,
   DeepLinkHandler,
+  DeepLinkHandlerResult,
+  SecondInstanceContext,
+  SecondInstanceHandler,
   WindowsOptions,
   SquirrelOptions,
   LinuxOptions,
@@ -31,12 +38,8 @@ export type {
   ParsedDeepLink,
 }
 
-// Re-export utilities
 export { parseDeepLink }
 
-/**
- * Create a no-op logger
- */
 function createNoOpLogger(): Logger {
   return {
     debug: () => {},
@@ -45,48 +48,28 @@ function createNoOpLogger(): Logger {
   }
 }
 
-/**
- * Set up single instance handling and deep link support for an Electron app.
- *
- * This function should be called as early as possible in your app's startup,
- * typically at the top of your main process entry point.
- *
- * @example
- * ```typescript
- * import { setupInstance } from 'electron-launch-handler'
- * import { app, BrowserWindow } from 'electron'
- *
- * let mainWindow: BrowserWindow | null = null
- *
- * const instance = setupInstance({
- *   protocols: ['myapp'],
- *   onDeepLink: (url, context) => {
- *     if (!mainWindow) {
- *       mainWindow = new BrowserWindow({ ... })
- *     }
- *     console.log('Received deep link:', url)
- *   },
- * })
- *
- * if (instance.shouldQuit) {
- *   app.quit()
- * } else {
- *   app.whenReady().then(async () => {
- *     instance.processPendingDeepLinks()
- *   })
- * }
- * ```
- *
- * @param options - Configuration options
- * @returns Instance manager for controlling the app instance
- */
+function createInactiveManager(): InstanceManager {
+  return {
+    shouldQuit: true,
+    processPendingDeepLinks: () => {},
+    getPendingDeepLinks: () => [],
+    clearPendingDeepLinks: () => {},
+    queueDeepLink: () => {},
+    deferDeepLink: () => {},
+    processDeferredDeepLinks: () => {},
+    getDeferredDeepLinks: () => [],
+    clearDeferredDeepLinks: () => {},
+    unregisterProtocols: () => {},
+    dispose: () => {},
+  }
+}
+
+/** Set up single-instance handling and protocol deep links. */
 export function setupInstance(options: SetupOptions): InstanceManager {
   const logger = options.logger ?? createNoOpLogger()
 
   logger.info('Setting up electron-launch-handler')
 
-  // Handle single instance locking
-  let shouldQuit = false
   let deepLinkManager: ReturnType<typeof createDeepLinkManager> | null = null
   logger.debug('Single instance mode enabled')
 
@@ -94,37 +77,48 @@ export function setupInstance(options: SetupOptions): InstanceManager {
     options,
     logger,
     (deepLinkUrl: string | undefined) => {
-      if (deepLinkUrl) {
-        deepLinkManager?.handleDeepLink(deepLinkUrl, 'open-url')
+      if (!deepLinkUrl) {
+        return
       }
+
+      deepLinkManager?.handleDeepLink(deepLinkUrl, 'open-url')
     }
   )
 
-  shouldQuit = !lockResult.hasLock
-
-  // If we should quit, return early with minimal manager
-  if (shouldQuit) {
-    return {
-      shouldQuit: true,
-      processPendingDeepLinks: () => {},
-      getPendingDeepLinks: () => [],
-      clearPendingDeepLinks: () => {},
-      queueDeepLink: (_url: string, _intent?: DeepLinkIntent) => {},
-      unregisterProtocols: () => {},
-    }
+  if (!lockResult.hasLock) {
+    return createInactiveManager()
   }
 
-  // Register protocols
   const protocolResult = registerProtocols(options, logger)
-
-  // Create deep link manager
   deepLinkManager = createDeepLinkManager(
     options,
     logger,
-    protocolResult.registered
+    getProtocolSchemes(options.protocols)
   )
 
-  // Return the instance manager
+  let disposed = false
+  let protocolsUnregistered = false
+
+  const unregisterProtocols = () => {
+    if (protocolsUnregistered) {
+      return
+    }
+
+    protocolsUnregistered = true
+    protocolResult.unregisterAll()
+  }
+
+  const dispose = () => {
+    if (disposed) {
+      return
+    }
+
+    disposed = true
+    deepLinkManager.cleanup()
+    lockResult.cleanup()
+    unregisterProtocols()
+  }
+
   return {
     shouldQuit: false,
 
@@ -144,9 +138,25 @@ export function setupInstance(options: SetupOptions): InstanceManager {
       deepLinkManager.queueDeepLink(url, intent)
     },
 
-    unregisterProtocols: () => {
-      protocolResult.unregisterAll()
+    deferDeepLink: (url: string, intent?: DeepLinkIntent) => {
+      deepLinkManager.deferDeepLink(url, intent)
     },
+
+    processDeferredDeepLinks: () => {
+      deepLinkManager.processDeferred()
+    },
+
+    getDeferredDeepLinks: () => {
+      return deepLinkManager.getDeferred()
+    },
+
+    clearDeferredDeepLinks: () => {
+      deepLinkManager.clearDeferred()
+    },
+
+    unregisterProtocols,
+
+    dispose,
   }
 }
 

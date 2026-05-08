@@ -109,6 +109,10 @@ export function createMockApp() {
       return true
     }),
 
+    releaseSingleInstanceLock: vi.fn(() => {
+      singleInstanceLockHeld = false
+    }),
+
     setAsDefaultProtocolClient: vi.fn((scheme: string) => {
       registeredProtocols.add(scheme)
       return true

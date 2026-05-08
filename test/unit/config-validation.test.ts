@@ -32,6 +32,7 @@ describe('SetupOptions Type', () => {
     const options: SetupOptions = {
       protocols: ['myapp'],
       onDeepLink: () => {},
+      onSecondInstance: () => {},
       onInstanceLockFailed: () => {},
       logger: {
         debug: () => {},

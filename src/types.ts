@@ -1,22 +1,21 @@
-/**
- * Intent of the deep link
- */
+/** Why a deep link was delivered. */
 export type DeepLinkIntent = 'launch' | 'open-url'
 
-/**
- * Context provided when a deep link is received
- */
 export interface DeepLinkContext {
   /** Original URL string */
   url: string
-  /** Parsed URL object */
+  /** Parsed WHATWG URL object */
   parsed: URL
-  /** Protocol without :// */
+  /** Protocol without the trailing colon */
   protocol: string
+  /** URL host */
+  host: string
   /** URL path */
   path: string
   /** Query parameters */
   params: URLSearchParams
+  /** URL hash/fragment */
+  hash: string
   /**
    * Why this deep link was delivered:
    * - 'launch': App was launched by the deep link
@@ -26,17 +25,41 @@ export interface DeepLinkContext {
 }
 
 /**
+ * Return this from `onDeepLink` when the URL is valid but the app cannot act on
+ * it yet. The URL is delivered again on `processDeferredDeepLinks()`.
+ */
+export interface DeepLinkDeferral {
+  action: 'defer'
+}
+
+export type DeepLinkHandlerResult = DeepLinkDeferral | void
+
+/**
  * Handler function for deep links.
  * Can be synchronous or asynchronous - async handlers will be awaited.
  */
 export type DeepLinkHandler = (
   url: string,
   context: DeepLinkContext
-) => void | Promise<void>
+) => DeepLinkHandlerResult | Promise<DeepLinkHandlerResult>
+
+export interface SecondInstanceContext {
+  /** Command-line arguments from the second instance */
+  argv: string[]
+  /** Working directory from the second instance */
+  workingDirectory: string
+  /** Deep link URL found in argv, if the relaunch included one */
+  deepLinkUrl?: string
+}
 
 /**
- * Logger interface for debug output
+ * Handler function for second-instance launches.
+ * Called for both plain relaunches and relaunches that include a deep link.
  */
+export type SecondInstanceHandler = (
+  context: SecondInstanceContext
+) => void | Promise<void>
+
 export interface Logger {
   debug: (message: string) => void
   info: (message: string) => void
@@ -83,15 +106,15 @@ export interface MacOSOptions {
   // Placeholder for future macOS-specific options
 }
 
-/**
- * Main configuration options for setupInstance
- */
 export interface SetupOptions {
   /** Protocol schemes to register */
   protocols?: string[]
 
   /** Called when a deep link is received */
   onDeepLink?: DeepLinkHandler
+
+  /** Called when another app instance is launched */
+  onSecondInstance?: SecondInstanceHandler
 
   /** Called when lock acquisition fails */
   onInstanceLockFailed?: () => void
@@ -105,9 +128,6 @@ export interface SetupOptions {
   macos?: MacOSOptions
 }
 
-/**
- * Return value from setupInstance
- */
 export interface InstanceManager {
   /** Whether this instance should quit (lock failed) */
   shouldQuit: boolean
@@ -142,15 +162,36 @@ export interface InstanceManager {
   queueDeepLink: (url: string, intent?: DeepLinkIntent) => void
 
   /**
+   * Hold a deep link until app-specific state is ready.
+   *
+   * Unlike `queueDeepLink()`, this always holds the URL for a future explicit
+   * `processDeferredDeepLinks()` call, even after pending deep links have been
+   * processed. This is useful for onboarding, auth, or workspace-loading flows.
+   */
+  deferDeepLink: (url: string, intent?: DeepLinkIntent) => void
+
+  /** Process deep links held by `deferDeepLink()` */
+  processDeferredDeepLinks: () => void
+
+  /** Get deferred deep links without processing */
+  getDeferredDeepLinks: () => string[]
+
+  /** Clear deferred deep links without processing */
+  clearDeferredDeepLinks: () => void
+
+  /**
    * Unregister all protocol handlers.
    * Typically only needed for testing or cleanup scenarios.
    */
   unregisterProtocols: () => void
+
+  /**
+   * Remove listeners installed by the library and unregister protocols.
+   * Typically only needed for tests, hot reload, or explicit teardown.
+   */
+  dispose: () => void
 }
 
-/**
- * Platform-specific handler interface
- */
 export interface PlatformHandler {
   /** Register a protocol scheme */
   registerProtocol: (scheme: string, options: SetupOptions) => boolean
@@ -165,9 +206,6 @@ export interface PlatformHandler {
   handleStartupEvents?: (options: SetupOptions) => boolean
 }
 
-/**
- * Result of parsing a deep link URL
- */
 export interface ParsedDeepLink {
   /** Original URL string */
   url: string

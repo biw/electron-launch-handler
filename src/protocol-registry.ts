@@ -1,25 +1,12 @@
 import type { SetupOptions, Logger } from './types.js'
 import { getPlatformHandler } from './platforms/index.js'
 
-/**
- * Result of protocol registration
- */
 export interface ProtocolRegistryResult {
-  /** Successfully registered protocol schemes */
   registered: string[]
-  /** Failed protocol schemes */
   failed: string[]
-  /** Unregister all registered protocols */
   unregisterAll: () => void
 }
 
-/**
- * Register protocol schemes for deep linking
- *
- * @param options - Setup options containing protocol configuration
- * @param logger - Logger instance
- * @returns Registration result
- */
 export function registerProtocols(
   options: SetupOptions,
   logger: Logger
@@ -56,18 +43,12 @@ export function registerProtocols(
   }
 }
 
-/**
- * Normalize protocol configuration to an array of scheme strings
- */
 function normalizeProtocols(protocols?: string[]): string[] {
   if (!protocols) return []
 
   return protocols
 }
 
-/**
- * Get all protocol schemes from configuration
- */
 export function getProtocolSchemes(protocols?: string[]): string[] {
   return normalizeProtocols(protocols)
 }
