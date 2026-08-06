@@ -4,8 +4,8 @@ import { homedir } from 'os'
 import path from 'path'
 import { app } from 'electron'
 import type {
+  CreateInstanceOptions,
   PlatformHandler,
-  SetupOptions,
   SquirrelOptions,
 } from '../types.js'
 
@@ -116,7 +116,7 @@ export function createWindowsHandler(): PlatformHandler {
      * Register a protocol scheme on Windows
      * Uses app.setAsDefaultProtocolClient()
      */
-    registerProtocol(scheme: string, _options: SetupOptions): boolean {
+    registerProtocol(scheme: string, _options: CreateInstanceOptions): boolean {
       if (app.isPackaged) {
         return app.setAsDefaultProtocolClient(scheme)
       }
@@ -163,7 +163,7 @@ export function createWindowsHandler(): PlatformHandler {
      * Handle Squirrel.Windows installer events
      * Returns true if the app should quit
      */
-    handleStartupEvents(options: SetupOptions): boolean {
+    handleStartupEvents(options: CreateInstanceOptions): boolean {
       // Check if Squirrel handling is disabled
       if (options.windows?.handleSquirrelEvents === false) {
         return false

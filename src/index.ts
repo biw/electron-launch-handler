@@ -1,6 +1,8 @@
 import type {
+  CreateInstanceOptions,
   SetupOptions,
   DeepLinkDeferral,
+  InstanceHandlers,
   InstanceManager,
   Logger,
   DeepLinkContext,
@@ -9,6 +11,7 @@ import type {
   DeepLinkHandlerResult,
   SecondInstanceContext,
   SecondInstanceHandler,
+  SingleInstanceLockMode,
   WindowsOptions,
   SquirrelOptions,
   LinuxOptions,
@@ -18,11 +21,14 @@ import type {
 import { acquireInstanceLock } from './instance-lock.js'
 import { getProtocolSchemes, registerProtocols } from './protocol-registry.js'
 import { createDeepLinkManager } from './deep-links.js'
+import { getPlatformHandler } from './platforms/index.js'
 import { parseDeepLink } from './url-parser.js'
 
 export type {
+  CreateInstanceOptions,
   SetupOptions,
   DeepLinkDeferral,
+  InstanceHandlers,
   InstanceManager,
   Logger,
   DeepLinkContext,
@@ -31,6 +37,7 @@ export type {
   DeepLinkHandlerResult,
   SecondInstanceContext,
   SecondInstanceHandler,
+  SingleInstanceLockMode,
   WindowsOptions,
   SquirrelOptions,
   LinuxOptions,
@@ -39,6 +46,19 @@ export type {
 }
 
 export { parseDeepLink }
+
+/**
+ * Find the last deep link in a list of command-line arguments.
+ *
+ * Exposed because apps that buffer their own launch events (or parse a
+ * relaunch's `argv` themselves) otherwise have to reimplement it.
+ */
+export function extractDeepLinkFromArgs(
+  argv: string[],
+  protocols: string[]
+): string | undefined {
+  return getPlatformHandler().extractDeepLinkFromArgs(argv, protocols)
+}
 
 function createNoOpLogger(): Logger {
   return {
@@ -51,12 +71,13 @@ function createNoOpLogger(): Logger {
 function createInactiveManager(): InstanceManager {
   return {
     shouldQuit: true,
-    processPendingDeepLinks: () => {},
+    configure: () => {},
+    processPendingDeepLinks: () => Promise.resolve(),
     getPendingDeepLinks: () => [],
     clearPendingDeepLinks: () => {},
     queueDeepLink: () => {},
     deferDeepLink: () => {},
-    processDeferredDeepLinks: () => {},
+    processDeferredDeepLinks: () => Promise.resolve(),
     getDeferredDeepLinks: () => [],
     clearDeferredDeepLinks: () => {},
     unregisterProtocols: () => {},
@@ -64,17 +85,33 @@ function createInactiveManager(): InstanceManager {
   }
 }
 
-/** Set up single-instance handling and protocol deep links. */
-export function setupInstance(options: SetupOptions): InstanceManager {
+/**
+ * Install single-instance handling and protocol deep links without supplying
+ * the app handlers yet.
+ *
+ * Call this as early as possible — ideally the first statement of your main
+ * entry point — so the `'open-url'` listener is installed before macOS can
+ * deliver a cold-launch deep link. Deep links received before
+ * `configure()` + `processPendingDeepLinks()` stay queued.
+ *
+ * If your app can build its handlers immediately, use `setupInstance()`.
+ */
+export function createInstance(
+  options: CreateInstanceOptions = {}
+): InstanceManager {
   const logger = options.logger ?? createNoOpLogger()
 
   logger.info('Setting up electron-launch-handler')
 
+  // Mutated by configure(); read at dispatch time so handlers can arrive after
+  // the listeners are installed.
+  const handlers: InstanceHandlers = {}
+
   let deepLinkManager: ReturnType<typeof createDeepLinkManager> | null = null
-  logger.debug('Single instance mode enabled')
 
   const lockResult = acquireInstanceLock(
     options,
+    handlers,
     logger,
     (deepLinkUrl: string | undefined) => {
       if (!deepLinkUrl) {
@@ -91,7 +128,7 @@ export function setupInstance(options: SetupOptions): InstanceManager {
 
   const protocolResult = registerProtocols(options, logger)
   deepLinkManager = createDeepLinkManager(
-    options,
+    handlers,
     logger,
     getProtocolSchemes(options.protocols)
   )
@@ -122,8 +159,20 @@ export function setupInstance(options: SetupOptions): InstanceManager {
   return {
     shouldQuit: false,
 
+    configure: (next: InstanceHandlers) => {
+      if ('onDeepLink' in next) {
+        handlers.onDeepLink = next.onDeepLink
+      }
+
+      if ('onSecondInstance' in next) {
+        handlers.onSecondInstance = next.onSecondInstance
+        lockResult.finishSecondInstanceBuffering()
+      }
+    },
+
     processPendingDeepLinks: () => {
-      deepLinkManager.processPending()
+      lockResult.finishSecondInstanceBuffering()
+      return deepLinkManager.processPending()
     },
 
     getPendingDeepLinks: () => {
@@ -143,7 +192,7 @@ export function setupInstance(options: SetupOptions): InstanceManager {
     },
 
     processDeferredDeepLinks: () => {
-      deepLinkManager.processDeferred()
+      return deepLinkManager.processDeferred()
     },
 
     getDeferredDeepLinks: () => {
@@ -158,6 +207,25 @@ export function setupInstance(options: SetupOptions): InstanceManager {
 
     dispose,
   }
+}
+
+/**
+ * Set up single-instance handling and protocol deep links in one call.
+ *
+ * Equivalent to `createInstance()` followed immediately by `configure()`. Use
+ * `createInstance()` instead when your handlers depend on work that happens
+ * after startup (database, auth, window manager), so the listeners are still
+ * installed early enough to catch a cold-launch deep link.
+ */
+export function setupInstance(options: SetupOptions = {}): InstanceManager {
+  const manager = createInstance(options)
+
+  manager.configure({
+    onDeepLink: options.onDeepLink,
+    onSecondInstance: options.onSecondInstance,
+  })
+
+  return manager
 }
 
 export default setupInstance

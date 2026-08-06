@@ -1,64 +1,85 @@
 name: Publish to npm
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   check-version:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
-      version-changed: ${{ steps.check.outputs.changed }}
       version: ${{ steps.check.outputs.version }}
       should-publish: ${{ steps.check.outputs.should_publish }}
     steps:
-      - name: Checkout code
+      - name: Checkout the CI-tested revision
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify the tested revision is still main
+        id: revision
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ]; then
+            echo "Checked out revision does not match the successful CI run" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if [ "$(git rev-parse origin/main)" != "$TESTED_SHA" ]; then
+            echo "is_current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale successful CI revision $TESTED_SHA"
+            exit 0
+          fi
+
+          echo "is_current=true" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
+        if: steps.revision.outputs.is_current == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
       - name: Check if version should be published
+        if: steps.revision.outputs.is_current == 'true'
         id: check
         run: |
-          # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           echo "Current version in package.json: $CURRENT_VERSION"
 
-          # Get published version from npm (if it exists)
-          PUBLISHED_VERSION=$(npm view electron-launch-handler version 2>/dev/null || echo "none")
-          echo "Published version on npm: $PUBLISHED_VERSION"
-
-          # Compare versions
-          if [ "$PUBLISHED_VERSION" = "none" ]; then
-            echo "Package not yet published to npm"
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-          elif [ "$CURRENT_VERSION" = "$PUBLISHED_VERSION" ]; then
+          npm view electron-launch-handler versions --json > published-versions.json
+          if PUBLISHED=$(node -e "const versions = require('./published-versions.json'); if (versions.includes(process.argv[1])) process.stdout.write(process.argv[1])" "$CURRENT_VERSION") && [ -n "$PUBLISHED" ]; then
             echo "Version $CURRENT_VERSION is already published"
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "should_publish=false" >> $GITHUB_OUTPUT
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Version changed from $PUBLISHED_VERSION to $CURRENT_VERSION"
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "should_publish=true" >> $GITHUB_OUTPUT
+            echo "Version $CURRENT_VERSION has not been published"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
   publish:
     needs: check-version
     if: needs.check-version.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
-      - name: Checkout code
+      - name: Checkout the CI-tested revision
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -73,20 +94,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
+      - name: Build package
         run: pnpm build
-
-      - name: Ensure recent npm for trusted publishing
-        run: npm install -g npm@latest
 
       - name: Verify npm version
         run: npm --version
+
+      - name: Reconfirm the published revision
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git fetch --no-tags origin main
+          if [ "$(git rev-parse HEAD)" != "$TESTED_SHA" ] || [ "$(git rev-parse origin/main)" != "$TESTED_SHA" ]; then
+            echo "Refusing to publish a revision that is no longer the tip of main" >&2
+            exit 1
+          fi
 
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public

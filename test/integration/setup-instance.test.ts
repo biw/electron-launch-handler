@@ -83,6 +83,25 @@ describe('setupInstance', () => {
     )
   })
 
+  it('does not retain deep links when onDeepLink is intentionally absent', async () => {
+    const onSecondInstance = vi.fn()
+    const url = 'myapp://settings'
+    const manager = setupInstance({
+      onSecondInstance,
+      protocols: ['myapp'],
+    })
+
+    await manager.processPendingDeepLinks()
+
+    for (let index = 0; index < 3; index++) {
+      appMock._simulateSecondInstance(['MyApp', url], `/tmp/project-${index}`)
+    }
+    await flushScheduledDispatch()
+
+    expect(onSecondInstance).toHaveBeenCalledTimes(3)
+    expect(manager.getPendingDeepLinks()).toEqual([])
+  })
+
   it('still handles configured protocols when OS registration fails', async () => {
     appMock.setAsDefaultProtocolClient.mockReturnValue(false)
 

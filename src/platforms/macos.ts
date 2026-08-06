@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import type { PlatformHandler, SetupOptions } from '../types.js'
+import type { CreateInstanceOptions, PlatformHandler } from '../types.js'
 
 /**
  * Create the macOS platform handler
@@ -15,7 +15,7 @@ export function createMacOSHandler(): PlatformHandler {
      * Register a protocol scheme on macOS
      * Uses app.setAsDefaultProtocolClient()
      */
-    registerProtocol(scheme: string, _options: SetupOptions): boolean {
+    registerProtocol(scheme: string, _options: CreateInstanceOptions): boolean {
       // In development, we need to pass the path to the script
       // In production, the app is bundled and this isn't needed
       if (app.isPackaged) {
@@ -44,13 +44,16 @@ export function createMacOSHandler(): PlatformHandler {
      * Extract deep link URL from command line arguments
      * On macOS, deep links typically come via the 'open-url' event,
      * not command line args. However, check args as fallback.
+     *
+     * Scanned in reverse to match Windows and Linux: the OS appends the URL,
+     * so the last match is the one that triggered this launch.
      */
     extractDeepLinkFromArgs(
       argv: string[],
       protocols: string[]
     ): string | undefined {
-      // Look for any argument that matches a registered protocol
-      for (const arg of argv) {
+      for (let i = argv.length - 1; i >= 0; i--) {
+        const arg = argv[i]
         for (const protocol of protocols) {
           if (arg.startsWith(`${protocol}://`)) {
             return arg
@@ -59,10 +62,5 @@ export function createMacOSHandler(): PlatformHandler {
       }
       return undefined
     },
-
-    /**
-     * No special startup events on macOS
-     */
-    handleStartupEvents: undefined,
   }
 }

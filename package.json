@@ -1,7 +1,7 @@
 {
   "name": "electron-launch-handler",
-  "version": "0.1.0",
-  "packageManager": "pnpm@9.15.0",
+  "version": "0.2.0",
+  "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "description": "Single instance enforcement and deep link handling for Electron apps",
   "type": "module",
   "main": "dist/index.js",
@@ -24,7 +24,9 @@
     "test": "vitest run test/unit test/integration",
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration",
-    "test:e2e": "vitest run test/e2e",
+    "test:types": "tsc --noEmit --project test/types/tsconfig.json",
+    "test:e2e": "pnpm build && vitest run test/e2e",
+    "test:coverage": "vitest run test/unit test/integration --coverage",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -51,10 +53,10 @@
     "url": "git+https://github.com/biw/electron-launch-handler.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24.0.0"
   },
   "peerDependencies": {
-    "electron": ">=22.0.0"
+    "electron": ">=41.0.0"
   },
   "peerDependenciesMeta": {
     "electron": {
@@ -62,16 +64,18 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
-    "electron": "^33.0.0",
+    "@vitest/coverage-v8": "3.2.4",
+    "electron": "41.0.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.0.0",
     "prettier": "^3.7.4",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "3.2.4"
   }
 }

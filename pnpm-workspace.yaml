@@ -1,0 +1,8 @@
+# pnpm reads its settings from this file (not the "pnpm" key in package.json).
+#
+# Since pnpm 10, dependency build scripts do not run unless allowlisted here.
+# Electron's postinstall downloads its binary and esbuild's installs a native
+# binary — without both, `pnpm test` fails on a clean install.
+allowBuilds:
+  electron: true
+  esbuild: true

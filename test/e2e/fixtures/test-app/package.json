@@ -2,13 +2,14 @@
   "name": "electron-launch-handler-test-app",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "41.0.0",
     "electron-builder": "^25.0.0"
   },
   "build": {
