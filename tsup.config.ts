@@ -6,7 +6,7 @@ export default defineConfig((options: Options) => ({
   entry: ['src/index.ts'],
   format: 'esm',
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   minify: !options.watch,
   sourcemap: true,
 }))

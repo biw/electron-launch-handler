@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true
+  },
+  "include": ["../../src/**/*.ts", "./instance-handlers.ts"],
+  "exclude": []
+}

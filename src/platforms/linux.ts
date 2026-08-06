@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import type { PlatformHandler, SetupOptions } from '../types.js'
+import type { CreateInstanceOptions, PlatformHandler } from '../types.js'
 
 /**
  * Create the Linux platform handler
@@ -21,7 +21,7 @@ export function createLinuxHandler(): PlatformHandler {
      * - The app to be installed (not run from a random location)
      * - xdg-utils to be available
      */
-    registerProtocol(scheme: string, options: SetupOptions): boolean {
+    registerProtocol(scheme: string, options: CreateInstanceOptions): boolean {
       if (app.isPackaged) {
         // In packaged mode, we might need to specify the desktop file name
         const desktopFileName = options.linux?.desktopFileName
@@ -58,8 +58,10 @@ export function createLinuxHandler(): PlatformHandler {
       argv: string[],
       protocols: string[]
     ): string | undefined {
-      // Check all args for a matching protocol URL
-      for (const arg of argv) {
+      // Scanned in reverse to match Windows and macOS: the OS appends the URL,
+      // so the last match is the one that triggered this launch.
+      for (let i = argv.length - 1; i >= 0; i--) {
+        const arg = argv[i]
         for (const protocol of protocols) {
           if (arg.startsWith(`${protocol}://`)) {
             return arg
@@ -68,10 +70,5 @@ export function createLinuxHandler(): PlatformHandler {
       }
       return undefined
     },
-
-    /**
-     * No special startup events on Linux
-     */
-    handleStartupEvents: undefined,
   }
 }

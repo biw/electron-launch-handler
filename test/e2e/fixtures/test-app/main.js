@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
-const fs = require('fs')
-const path = require('path')
+import { app, BrowserWindow, ipcMain } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createInstance } from '../../../../dist/index.js'
 
 const logFile =
   process.env.TEST_LOG_FILE ||
@@ -19,7 +20,6 @@ const logger = {
 }
 
 let mainWindow = null
-let instance = null
 let windowReady = false
 
 fs.writeFileSync(logFile, '')
@@ -48,6 +48,10 @@ function handleDeepLink(url, context) {
   }
 
   mainWindow.webContents.send('deep-link', url)
+
+  if (context.params.get('test-exit') === '1') {
+    setTimeout(() => app.quit(), 0)
+  }
 }
 
 function createWindow() {
@@ -64,11 +68,12 @@ function createWindow() {
 
   mainWindow.loadFile('index.html')
 
-  mainWindow.webContents.on('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', async () => {
     log('Window finished loading')
     windowReady = true
-    instance.processPendingDeepLinks()
-    instance.processDeferredDeepLinks()
+    await instance.processPendingDeepLinks()
+    await instance.processDeferredDeepLinks()
+    log('Launch queues drained')
   })
 
   mainWindow.on('closed', () => {
@@ -77,11 +82,28 @@ function createWindow() {
   })
 }
 
-async function main() {
-  const { setupInstance } = await import('../../../../dist/index.js')
+// The static import and module-scope construction ensure this listener is live
+// before Electron can emit a cold-launch open-url event.
+const instance = createInstance({
+  logger,
+  protocols: ['testapp'],
+})
 
-  instance = setupInstance({
-    logger,
+if (instance.shouldQuit) {
+  log('Another instance is running, quitting')
+  app.quit()
+} else {
+  const autoExitMs = Number(process.env.TEST_AUTO_EXIT_MS)
+  if (Number.isFinite(autoExitMs) && autoExitMs > 0) {
+    setTimeout(() => {
+      log('Test auto-exit timer fired')
+      app.quit()
+    }, autoExitMs)
+  }
+
+  // Handlers are supplied separately from listener/lock installation to mirror
+  // staged application bootstrap.
+  instance.configure({
     onDeepLink: handleDeepLink,
     onSecondInstance: ({ deepLinkUrl }) => {
       if (deepLinkUrl) {
@@ -92,14 +114,7 @@ async function main() {
       log('Plain second instance')
       focusMainWindow()
     },
-    protocols: ['testapp'],
   })
-
-  if (instance.shouldQuit) {
-    log('Another instance is running, quitting')
-    app.quit()
-    return
-  }
 
   app.whenReady().then(() => {
     log('App ready')
@@ -113,10 +128,6 @@ async function main() {
   })
 }
 
-app.on('open-url', (event) => {
-  event.preventDefault()
-})
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     log('All windows closed, quitting')
@@ -126,10 +137,3 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('get-log-file', () => logFile)
 ipcMain.handle('ping', () => 'pong')
-
-main().catch((error) => {
-  log(
-    `Failed to start test app: ${error instanceof Error ? error.stack : error}`
-  )
-  app.quit()
-})

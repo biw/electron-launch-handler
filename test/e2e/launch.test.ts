@@ -118,6 +118,45 @@ const startElectron = (
   return proc
 }
 
+const startMacOSProtocolLaunch = (
+  electronPath: string,
+  logFile: string,
+  url: string
+) => {
+  if (fs.existsSync(logFile)) {
+    fs.unlinkSync(logFile)
+  }
+
+  const electronAppBundle = path.resolve(electronPath, '../../..')
+  const openArgs = [
+    '-W',
+    '-n',
+    '-a',
+    electronAppBundle,
+    '--env',
+    `TEST_LOG_FILE=${logFile}`,
+    '--env',
+    'TEST_AUTO_EXIT_MS=10000',
+    url,
+    '--args',
+    TEST_APP_DIR,
+  ]
+
+  appendLog(logFile, `Spawning via LaunchServices: ${openArgs.join(' ')}\n`)
+
+  const proc = spawn('open', openArgs, { stdio: 'pipe' })
+
+  proc.stdout?.on('data', (data: Buffer) => {
+    appendLog(logFile, data.toString())
+  })
+
+  proc.stderr?.on('data', (data: Buffer) => {
+    appendLog(logFile, data.toString())
+  })
+
+  return proc
+}
+
 describe('E2E: Electron launch handling', () => {
   let electronPath: string
 
@@ -159,6 +198,53 @@ describe('E2E: Electron launch handling', () => {
         if (fs.existsSync(log2File)) {
           fs.unlinkSync(log2File)
         }
+      }
+    }
+  )
+
+  it.skipIf(shouldSkipElectronLaunch())(
+    'classifies a cold-launch deep link as a launch',
+    async () => {
+      const url = 'testapp://settings?tab=general'
+      // Only instance running, URL present at startup: this is a cold launch,
+      // not a relaunch, so the handler must see intent 'launch'.
+      const proc = startElectron(electronPath, LOG_FILE, [url])
+
+      try {
+        await waitForLog(LOG_FILE, `Deep link received: ${url} (launch)`)
+        expect(proc.exitCode).toBeNull()
+      } finally {
+        await stopProcess(proc)
+      }
+    }
+  )
+
+  it.runIf(process.platform === 'darwin')(
+    'reports a native cold-launch open-url event as open-url',
+    async () => {
+      const url = 'testapp://settings?source=open-url&test-exit=1'
+      const proc = startMacOSProtocolLaunch(electronPath, LOG_FILE, url)
+
+      try {
+        await waitForLog(LOG_FILE, `Deep link received: ${url} (open-url)`)
+        await waitForExit(proc)
+        expect(proc.exitCode).toBe(0)
+      } finally {
+        await stopProcess(proc)
+      }
+    }
+  )
+
+  it.skipIf(shouldSkipElectronLaunch())(
+    'drains the launch queues through the awaitable API',
+    async () => {
+      const proc = startElectron(electronPath, LOG_FILE)
+
+      try {
+        await waitForLog(LOG_FILE, 'Launch queues drained')
+        expect(proc.exitCode).toBeNull()
+      } finally {
+        await stopProcess(proc)
       }
     }
   )

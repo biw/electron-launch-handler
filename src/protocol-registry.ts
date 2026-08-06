@@ -1,4 +1,4 @@
-import type { SetupOptions, Logger } from './types.js'
+import type { CreateInstanceOptions, Logger } from './types.js'
 import { getPlatformHandler } from './platforms/index.js'
 
 export interface ProtocolRegistryResult {
@@ -8,7 +8,7 @@ export interface ProtocolRegistryResult {
 }
 
 export function registerProtocols(
-  options: SetupOptions,
+  options: CreateInstanceOptions,
   logger: Logger
 ): ProtocolRegistryResult {
   const platformHandler = getPlatformHandler()

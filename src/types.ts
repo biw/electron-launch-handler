@@ -1,4 +1,4 @@
-/** Why a deep link was delivered. */
+/** How a deep link was delivered. */
 export type DeepLinkIntent = 'launch' | 'open-url'
 
 export interface DeepLinkContext {
@@ -17,9 +17,13 @@ export interface DeepLinkContext {
   /** URL hash/fragment */
   hash: string
   /**
-   * Why this deep link was delivered:
-   * - 'launch': App was launched by the deep link
-   * - 'open-url': App was already running when the deep link was received
+   * How this deep link was delivered:
+   * - 'launch': Found in this process's startup arguments
+   * - 'open-url': Received from an Electron runtime event
+   *
+   * macOS protocol links arrive through Electron's `open-url` event even when
+   * they start the process. Electron does not expose enough information to
+   * infer causality from that event.
    */
   intent: DeepLinkIntent
 }
@@ -106,15 +110,45 @@ export interface MacOSOptions {
   // Placeholder for future macOS-specific options
 }
 
-export interface SetupOptions {
-  /** Protocol schemes to register */
-  protocols?: string[]
+/**
+ * How the single-instance lock is obtained.
+ *
+ * - `'auto'` (default): the library calls `app.requestSingleInstanceLock()`
+ *   itself and releases it on `dispose()`.
+ * - `'external'`: the caller already acquired the lock (typically at the very
+ *   top of the main entry point, before any expensive bootstrap work). The
+ *   library installs the `'second-instance'` listener but never acquires or
+ *   releases the lock.
+ * - `'disabled'`: no lock is taken and no `'second-instance'` listener is
+ *   installed. Deep links still work.
+ */
+export type SingleInstanceLockMode = 'auto' | 'external' | 'disabled'
 
+/**
+ * The application callbacks the library dispatches into.
+ *
+ * These are separated from {@link CreateInstanceOptions} so they can be
+ * supplied later via `configure()`, once the app has bootstrapped far enough
+ * to build them. Second-instance events received before
+ * `onSecondInstance` is supplied are replayed when it is configured, or
+ * discarded when pending deep-link processing begins without one.
+ */
+export interface InstanceHandlers {
   /** Called when a deep link is received */
-  onDeepLink?: DeepLinkHandler
+  onDeepLink?: DeepLinkHandler | undefined
 
   /** Called when another app instance is launched */
-  onSecondInstance?: SecondInstanceHandler
+  onSecondInstance?: SecondInstanceHandler | undefined
+}
+
+/**
+ * Options for `createInstance()`.
+ *
+ * Everything here is known at process start, before the app has bootstrapped.
+ */
+export interface CreateInstanceOptions {
+  /** Protocol schemes to register */
+  protocols?: string[]
 
   /** Called when lock acquisition fails */
   onInstanceLockFailed?: () => void
@@ -122,15 +156,40 @@ export interface SetupOptions {
   /** Logger instance */
   logger?: Logger
 
+  /** How the single-instance lock is obtained (default: `'auto'`) */
+  singleInstanceLock?: SingleInstanceLockMode
+
   /** Platform-specific options */
   windows?: WindowsOptions
   linux?: LinuxOptions
   macos?: MacOSOptions
 }
 
+/**
+ * Options for `setupInstance()` — creation options plus the handlers, supplied
+ * together in a single call.
+ */
+export interface SetupOptions extends CreateInstanceOptions, InstanceHandlers {}
+
 export interface InstanceManager {
   /** Whether this instance should quit (lock failed) */
   shouldQuit: boolean
+
+  /**
+   * Supply or replace the application handlers.
+   *
+   * Call this once your app has bootstrapped far enough to build them. Deep
+   * links that arrive beforehand stay queued, so it is safe to call
+   * `createInstance()` on the first line of your main entry point and
+   * `configure()` much later.
+   *
+   * Only the keys present on `handlers` are updated, so you can set
+   * `onDeepLink` and `onSecondInstance` from different places before calling
+   * `processPendingDeepLinks()`. Explicitly setting `onSecondInstance` to
+   * `undefined` discards buffered relaunch callbacks and opts out of buffering
+   * future ones.
+   */
+  configure: (handlers: InstanceHandlers) => void
 
   /**
    * Process any pending deep links and mark the handler as "ready".
@@ -141,8 +200,13 @@ export interface InstanceManager {
    *
    * Call this after your app is ready to handle deep links (e.g., after
    * window creation or after onboarding completes).
+   *
+   * The returned promise resolves once every dispatched handler has settled,
+   * so you can await it before revealing a window. This always transitions the
+   * queue to processed. If no `onDeepLink` handler exists, queued links are
+   * discarded and future links are not retained.
    */
-  processPendingDeepLinks: () => void
+  processPendingDeepLinks: () => Promise<void>
 
   /** Get pending deep links without processing */
   getPendingDeepLinks: () => string[]
@@ -156,8 +220,9 @@ export interface InstanceManager {
    * (e.g., window doesn't exist, user is mid-onboarding).
    * Pass `intent` to preserve the original context intent when re-queuing.
    *
-   * Note: If `processPendingDeepLinks()` has already been called, the URL
-   * will be dispatched on the next tick instead of being queued.
+   * Note: If `processPendingDeepLinks()` has already been called, the URL is
+   * dispatched asynchronously behind any in-flight handler rather than being
+   * queued.
    */
   queueDeepLink: (url: string, intent?: DeepLinkIntent) => void
 
@@ -170,8 +235,15 @@ export interface InstanceManager {
    */
   deferDeepLink: (url: string, intent?: DeepLinkIntent) => void
 
-  /** Process deep links held by `deferDeepLink()` */
-  processDeferredDeepLinks: () => void
+  /**
+   * Process deep links held by `deferDeepLink()`.
+   *
+   * The returned promise resolves once every dispatched handler has settled.
+   * If called by an active `onDeepLink` handler, processing is scheduled behind
+   * that handler and the promise resolves immediately to avoid a re-entrant
+   * deadlock.
+   */
+  processDeferredDeepLinks: () => Promise<void>
 
   /** Get deferred deep links without processing */
   getDeferredDeepLinks: () => string[]
@@ -194,7 +266,7 @@ export interface InstanceManager {
 
 export interface PlatformHandler {
   /** Register a protocol scheme */
-  registerProtocol: (scheme: string, options: SetupOptions) => boolean
+  registerProtocol: (scheme: string, options: CreateInstanceOptions) => boolean
   /** Unregister a protocol scheme */
   unregisterProtocol: (scheme: string) => boolean
   /** Extract deep link URL from command line arguments */
@@ -203,7 +275,7 @@ export interface PlatformHandler {
     protocols: string[]
   ) => string | undefined
   /** Handle platform-specific startup events (returns true if app should quit) */
-  handleStartupEvents?: (options: SetupOptions) => boolean
+  handleStartupEvents?: (options: CreateInstanceOptions) => boolean
 }
 
 export interface ParsedDeepLink {

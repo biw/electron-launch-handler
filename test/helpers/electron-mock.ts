@@ -57,6 +57,8 @@ export type MockBrowserWindow = ReturnType<typeof createMockBrowserWindow>
 export function createMockApp() {
   const eventHandlers = new Map<string, Set<(...args: unknown[]) => void>>()
   const registeredProtocols = new Set<string>()
+  // Apps install launch handling before 'ready', so that is the default here.
+  let ready = false
   let singleInstanceLockHeld = false
   let secondInstanceCallback:
     | ((event: unknown, argv: string[], workingDirectory: string) => void)
@@ -129,10 +131,18 @@ export function createMockApp() {
 
     quit: vi.fn(),
 
-    whenReady: vi.fn(() => Promise.resolve()),
+    isReady: vi.fn(() => ready),
+
+    whenReady: vi.fn(() => {
+      ready = true
+      return Promise.resolve()
+    }),
 
     // Test helpers
     _eventHandlers: eventHandlers,
+    _setReady: (value: boolean) => {
+      ready = value
+    },
     _registeredProtocols: registeredProtocols,
     _singleInstanceLockHeld: () => singleInstanceLockHeld,
     _resetSingleInstanceLock: () => {

@@ -14,18 +14,40 @@ describe('E2E fixture', () => {
   it('uses the built package entrypoint', () => {
     const mainJs = readFixtureMain()
 
-    expect(mainJs).toContain('../../../../dist/index.js')
-    expect(mainJs).toContain('setupInstance')
+    expect(mainJs).toContain(
+      "import { createInstance } from '../../../../dist/index.js'"
+    )
+    expect(mainJs).not.toContain('await import(')
   })
 
-  it('routes fixture deep links through setupInstance', () => {
+  it('routes fixture deep links through createInstance', () => {
     const mainJs = readFixtureMain()
 
     expect(mainJs).toContain("protocols: ['testapp']")
+    expect(mainJs).toContain('instance.configure(')
     expect(mainJs).toContain('onDeepLink: handleDeepLink')
     expect(mainJs).toContain("return { action: 'defer' }")
     expect(mainJs).toContain('processPendingDeepLinks')
     expect(mainJs).toContain('processDeferredDeepLinks')
+  })
+
+  it('installs launch handling before app ready', () => {
+    const mainJs = readFixtureMain()
+
+    // The whole point of createInstance: listeners must be installed before
+    // whenReady, otherwise a macOS cold-launch open-url is missed. The
+    // behavioral proof is in launch.test.ts; this just stops the fixture from
+    // quietly regressing to the late-setup pattern it is meant to demonstrate.
+    expect(mainJs.indexOf('createInstance(')).toBeLessThan(
+      mainJs.indexOf('app.whenReady()')
+    )
+  })
+
+  it('does not manually emit or intercept open-url events', () => {
+    const mainJs = readFixtureMain()
+
+    expect(mainJs).not.toContain("app.emit('open-url'")
+    expect(mainJs).not.toContain("app.on('open-url'")
   })
 
   it('routes plain relaunches through onSecondInstance', () => {

@@ -30,6 +30,16 @@ jobs:
       - name: Lint (ESLint + TypeScript)
         run: pnpm lint
 
+      - name: Run public API type fixture
+        run: pnpm test:types
+
+      - name: Verify supported version floors
+        shell: bash
+        run: |
+          node -e "if (process.versions.node.split('.')[0] !== '24') throw new Error('CI must exercise Node 24')"
+          node -e "if (process.argv[1] !== '11.20.0') throw new Error('CI must use pnpm 11.20.0')" "$(pnpm --version)"
+          node -e "const { version } = require('electron/package.json'); if (version !== '41.0.0') throw new Error('CI must exercise Electron 41.0.0, got ' + version)"
+
   unit-tests:
     runs-on: ubuntu-latest
     steps:
