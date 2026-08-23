@@ -15,3 +15,7 @@ detectAvx.exe
 
 # Context
 .context/
+
+# Installed agent skills
+.agents/skills/
+.claude/skills/

@@ -27,6 +27,7 @@
     "test:types": "tsc --noEmit --project test/types/tsconfig.json",
     "test:e2e": "pnpm build && vitest run test/e2e",
     "test:coverage": "vitest run test/unit test/integration --coverage",
+    "prepare": "pnpx skills experimental_install",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
